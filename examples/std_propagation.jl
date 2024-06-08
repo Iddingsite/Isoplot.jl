@@ -61,17 +61,22 @@ age_68 = age68.(analyses)
 
 function dispersion_calculation(x::Collection{Measurement{T}}) where {T}
 
-        sum_of_values = sum_of_weights = χ² = zero(float(T))
-        @inbounds for i in eachindex(x)
-                μ, σ² = Isoplot.val(x[i]), Isoplot.err(x[i])^2
-                sum_of_values += μ / σ²
-                sum_of_weights += one(T) / σ²
-        end
-        wμ = sum_of_values / sum_of_weights
+    
 
-        wσ = sqrt(1 / sum_of_weights)
 
-        return wμ, wσ
+    sum_of_values = sum_of_weights = χ² = ϵ = zero(float(T))
+    @inbounds for i in eachindex(x)
+            μ, σ² = Isoplot.val(x[i]), Isoplot.err(x[i])^2
+            sum_of_values += μ / σ²
+            sum_of_weights += one(T) / σ²
+    end
+    wμ = sum_of_values / sum_of_weights
+
+    wσ = sqrt(1 / sum_of_weights)
+
+
+
+    return wμ, wσ
 end
 
 dispersion_calculation(age_68)
