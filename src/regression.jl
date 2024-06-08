@@ -1,32 +1,9 @@
-using SpecialFunctions: erfc
-
-"""
-Apply Chauvenet's criterion to a set of data to identify outliers.
-
-The function calculates the z-scores of the data points, and then calculates the probability `p` of observing a value as extreme as the z-score under the assumption of normal distribution.
-It then applies Chauvenet's criterion, marking any data point as an outlier if `2 * N * p < 1.0`, where `N` is the total number of data points.
-"""
-function chauvenet_func(μ::Vector{T}, σ::Vector) where {T}
-    mean_val = mean(μ)
-    N = length(μ)
-
-    z_scores = abs.(μ .- mean_val) ./ σ
-    p = 0.5 * erfc.(z_scores ./ sqrt(2.0))
-
-    criterion = 2 * N * p
-    selected_data = criterion .>= 1.0
-
-    # add @info about number of outliers
-    @info "Excluding $(N - sum(selected_data)) outliers based on Chauvenet's criterion."
-
-    return selected_data
-end
-
 ## --- Weighted means
+
 """
 ```julia
-wμ, wσ, mswd = wmean(μ, σ; corrected=true, chauvenet=false)
-wμ ± wσ, mswd = wmean(μ ± σ; corrected=true, chauvenet=false)
+wμ, wσ, mswd = wmean(μ, σ; corrected=false)
+wμ ± wσ, mswd = wmean(μ ± σ; corrected=false)
 ```
 The weighted mean, with or without the "geochronologist's MSWD correction" to uncertainty.
 You may specify your means and standard deviations either as separate vectors `μ` and `σ`,
@@ -37,7 +14,6 @@ In all cases, `σ` is assumed to reported as _actual_ sigma (i.e., 1-sigma).
 If `corrected=true`, the resulting uncertainty of the weighted mean is corrected
 for dispersion when the MSWD is greater than `1` by multiplying by the square
 root of the MSWD.
-If `chauvenet=true`, outliers will be removed before the computation of the weighted mean using Chauvenet's criterion.
 
 ### Examples
 ```julia
@@ -69,13 +45,7 @@ julia> wmean(x .± y./10, corrected=true)
 (-0.32 ± 0.29, 81.9217147788568)
 ```
 """
-function wmean(μ::Collection{T}, σ::Collection; corrected::Bool=true, chauvenet::Bool=false) where {T}
-    if chauvenet
-        not_outliers = chauvenet_func(μ, σ)
-        μ = μ[not_outliers]
-        σ = σ[not_outliers]
-    end
-
+function wmean(μ::Collection{T}, σ::Collection; corrected::Bool=true) where {T}
     sum_of_values = sum_of_weights = χ² = zero(float(T))
     @inbounds for i in eachindex(μ,σ)
         σ² = σ[i]^2
@@ -95,16 +65,7 @@ function wmean(μ::Collection{T}, σ::Collection; corrected::Bool=true, chauvene
     end
     return wμ, wσ, mswd
 end
-
-function wmean(x::Collection{Measurement{T}}; corrected::Bool=true, chauvenet::Bool=false) where {T}
-    μ, σ = val.(x), err.(x)
-
-    if chauvenet
-        not_outliers = chauvenet_func(μ, σ)
-        x = x[not_outliers]
-        μ, σ = val.(x), err.(x)
-    end
-
+function wmean(x::Collection{Measurement{T}}; corrected::Bool=true) where {T}
     sum_of_values = sum_of_weights = χ² = zero(float(T))
     @inbounds for i in eachindex(x)
         μ, σ² = val(x[i]), err(x[i])^2
@@ -173,13 +134,7 @@ julia> mswd(x, ones(10))
 1.3901517474017941
 ```
 """
-function mswd(μ::Collection{T}, σ::Collection; chauvenet=false) where {T}
-    if chauvenet
-        not_outliers = chauvenet_func(μ, σ)
-        μ = μ[not_outliers]
-        σ = σ[not_outliers]
-    end
-
+function mswd(μ::Collection{T}, σ::Collection) where {T}
     sum_of_values = sum_of_weights = χ² = zero(float(T))
 
     @inbounds for i in eachindex(μ,σ)
@@ -196,13 +151,7 @@ function mswd(μ::Collection{T}, σ::Collection; chauvenet=false) where {T}
     return χ² / (length(μ)-1)
 end
 
-function mswd(x::Collection{Measurement{T}}; chauvenet=false) where {T}
-
-    if chauvenet
-        not_outliers = chauvenet_func(val.(x), err.(x))
-        x = x[not_outliers]
-    end
-
+function mswd(x::Collection{Measurement{T}}) where {T}
     sum_of_values = sum_of_weights = χ² = zero(float(T))
 
     @inbounds for i in eachindex(x)
@@ -319,10 +268,10 @@ function yorkfit(x, σx, y, σy, r=vcor(x,y); iterations=10)
     Z = @. ωx*ωy / (b^2*ωy + ωx - 2*b*r*α)
 
     x̄ = vsum(Z.*x) / vsum(Z)
-    ȳ = vsum(Z.*y) / vsum(Z)
+    ȳ = vsum(Z.*y) / vsum(Z)
 
     U = x .- x̄
-    V = y .- ȳ
+    V = y .- ȳ
 
     if Z isa NTuple
         Z = collect(Z)
@@ -334,7 +283,7 @@ function yorkfit(x, σx, y, σy, r=vcor(x,y); iterations=10)
     sU = @. Z^2 * U * (U/ωy + b*V/ωx - b*r*U/α)
     b = vsum(sV) / vsum(sU)
 
-    a = ȳ - b * x̄
+    a = ȳ - b * x̄
     for _ in 2:iterations
         @. Z = ωx*ωy / (b^2*ωy + ωx - 2*b*r*α)
 
@@ -345,23 +294,23 @@ function yorkfit(x, σx, y, σy, r=vcor(x,y); iterations=10)
             ΣZy += Z[i] * y[i]
         end
         x̄ = ΣZx / ΣZ
-        ȳ = ΣZy / ΣZ
+        ȳ = ΣZy / ΣZ
 
         @. U = x - x̄
-        @. V = y - ȳ
+        @. V = y - ȳ
 
         @. sV = Z^2 * V * (U/ωy + b*V/ωx - r*V/α)
         @. sU = Z^2 * U * (U/ωy + b*V/ωx - b*r*U/α)
         b = sum(sV) / sum(sU)
 
-        a = ȳ - b * x̄
+        a = ȳ - b * x̄
     end
 
     ## 4. Calculate uncertainties and MSWD
     β = @. Z * (U/ωy + b*V/ωx - (b*U+V)*r/α)
 
     u = x̄ .+ β
-    v = ȳ .+ b.*β
+    v = ȳ .+ b.*β
 
     xm = vsum(Z.*u)./vsum(Z)
     ym = vsum(Z.*v)./vsum(Z)
