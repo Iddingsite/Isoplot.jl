@@ -325,3 +325,8 @@ function yorkfit(x, σx, y, σy, r=vcor(x,y); iterations=10)
     ## Results
     return YorkFit(a ± σa, b ± σb, xm, ym ± σym, mswd)
 end
+
+# systematic uncertainty estimation
+# idea: we suppose that MSWD = 1, and we calculate the systematic uncertainty by iterating
+
+
