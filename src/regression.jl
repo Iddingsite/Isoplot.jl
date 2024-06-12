@@ -22,30 +22,6 @@ function chauvenet_func(μ::Vector{T}, σ::Vector) where {T}
     return selected_data
 end
 
-using SpecialFunctions: erfc
-
-"""
-Apply Chauvenet's criterion to a set of data to identify outliers.
-
-The function calculates the z-scores of the data points, and then calculates the probability `p` of observing a value as extreme as the z-score under the assumption of normal distribution.
-It then applies Chauvenet's criterion, marking any data point as an outlier if `2 * N * p < 1.0`, where `N` is the total number of data points.
-"""
-function chauvenet_func(μ::Vector{T}, σ::Vector) where {T}
-    mean_val = mean(μ)
-    N = length(μ)
-
-    z_scores = abs.(μ .- mean_val) ./ σ
-    p = 0.5 * erfc.(z_scores ./ sqrt(2.0))
-
-    criterion = 2 * N * p
-    selected_data = criterion .>= 1.0
-
-    # add @info about number of outliers
-    @info "Excluding $(N - sum(selected_data)) outliers based on Chauvenet's criterion."
-
-    return selected_data
-end
-
 ## --- Weighted means
 """
 ```julia
@@ -63,7 +39,6 @@ of `sqrt(mswd)` to attempt to account for dispersion dispersion when the MSWD is
 
 If `chauvenet=true`, outliers will be removed before the computation of the weighted mean 
 using Chauvenet's criterion.
-If `chauvenet=true`, outliers will be removed before the computation of the weighted mean using Chauvenet's criterion.
 
 ### Examples
 ```julia
