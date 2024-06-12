@@ -22,6 +22,30 @@ function chauvenet_func(μ::Vector{T}, σ::Vector) where {T}
     return selected_data
 end
 
+using SpecialFunctions: erfc
+
+"""
+Apply Chauvenet's criterion to a set of data to identify outliers.
+
+The function calculates the z-scores of the data points, and then calculates the probability `p` of observing a value as extreme as the z-score under the assumption of normal distribution.
+It then applies Chauvenet's criterion, marking any data point as an outlier if `2 * N * p < 1.0`, where `N` is the total number of data points.
+"""
+function chauvenet_func(μ::Vector{T}, σ::Vector) where {T}
+    mean_val = mean(μ)
+    N = length(μ)
+
+    z_scores = abs.(μ .- mean_val) ./ σ
+    p = 0.5 * erfc.(z_scores ./ sqrt(2.0))
+
+    criterion = 2 * N * p
+    selected_data = criterion .>= 1.0
+
+    # add @info about number of outliers
+    @info "Excluding $(N - sum(selected_data)) outliers based on Chauvenet's criterion."
+
+    return selected_data
+end
+
 ## --- Weighted means
 """
 ```julia
@@ -34,9 +58,11 @@ or as a single vector `x` of `Measurement`s equivalent to `x = μ .± σ`
 
 In all cases, `σ` is assumed to reported as _actual_ sigma (i.e., 1-sigma).
 
-If `corrected=true`, the resulting uncertainty of the weighted mean is corrected
-for dispersion when the MSWD is greater than `1` by multiplying by the square
-root of the MSWD.
+If `corrected=true`, the resulting uncertainty of the weighted mean is expanded by a factor
+of `sqrt(mswd)` to attempt to account for dispersion dispersion when the MSWD is greater than `1`
+
+If `chauvenet=true`, outliers will be removed before the computation of the weighted mean 
+using Chauvenet's criterion.
 If `chauvenet=true`, outliers will be removed before the computation of the weighted mean using Chauvenet's criterion.
 
 ### Examples
@@ -69,7 +95,7 @@ julia> wmean(x .± y./10, corrected=true)
 (-0.32 ± 0.29, 81.9217147788568)
 ```
 """
-function wmean(μ::Collection{T}, σ::Collection; corrected::Bool=true, chauvenet::Bool=false) where {T}
+function wmean(μ::Collection1D{T}, σ::Collection1D{T}; corrected::Bool=true, chauvenet::Bool=false) where {T}
     if chauvenet
         not_outliers = chauvenet_func(μ, σ)
         μ = μ[not_outliers]
@@ -96,7 +122,7 @@ function wmean(μ::Collection{T}, σ::Collection; corrected::Bool=true, chauvene
     return wμ, wσ, mswd
 end
 
-function wmean(x::Collection{Measurement{T}}; corrected::Bool=true, chauvenet::Bool=false) where {T}
+function wmean(x::AbstractVector{Measurement{T}}; corrected::Bool=true, chauvenet::Bool=false) where {T}
 
     if chauvenet
         μ, σ = val.(x), err.(x)
@@ -104,25 +130,27 @@ function wmean(x::Collection{Measurement{T}}; corrected::Bool=true, chauvenet::B
         x = x[not_outliers]
     end
 
-    sum_of_values = sum_of_weights = χ² = zero(float(T))
-    @inbounds for i in eachindex(x)
-        μ, σ² = val(x[i]), err(x[i])^2
-        sum_of_values += μ / σ²
-        sum_of_weights += one(T) / σ²
-    end
-    wμ = sum_of_values / sum_of_weights
+    wμ, wσ, mswd = wmean(val.(x), Measurements.cov(x); corrected)
 
-    @inbounds for i in eachindex(x)
-        μ, σ = val(x[i]), err(x[i])
-        χ² += (μ - wμ)^2 / σ^2
-    end
-    mswd = χ² / (length(x)-1)
-    wσ = if corrected
-        sqrt(max(mswd,1) / sum_of_weights)
-    else
-        sqrt(1 / sum_of_weights)
-    end
     return wμ ± wσ, mswd
+end
+
+# Full covariance matrix method
+function wmean(x::AbstractVector{T}, C::AbstractMatrix{T}; corrected::Bool=true) where T
+    # Weighted mean and variance, full matrix method
+    J = ones(length(x))
+    σ²ₓ̄ = 1/(J'/C*J)
+    x̄ = σ²ₓ̄*(J'/C*x)
+
+    # MSWD, full matrix method
+    r = x .- x̄
+    χ² = r'/C*r
+    mswd = χ² / (length(x)-1)
+
+    # Optional: expand standard error by sqrt of mswd, if mswd > 1
+    corrected && (σ²ₓ̄ *= max(mswd,1))
+
+    return x̄, sqrt(σ²ₓ̄), mswd
 end
 
 # Legacy methods, for backwards compatibility
